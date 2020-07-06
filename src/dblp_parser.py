@@ -4,6 +4,8 @@ import csv
 import codecs
 import ujson
 import re
+from tqdm import tqdm
+import os
 
 # all of the element types in dblp
 all_elements = {"article", "inproceedings", "proceedings", "book", "incollection", "phdthesis", "mastersthesis", "www"}
@@ -141,6 +143,31 @@ def parse_entity(dblp_path, save_path, type_name, features=None, save_to_csv=Fal
             ujson.dump(results, f)
     return full_entity, part_entity, attrib_count
 
+def parse_entity_iteratively(dblp_path, save_path, type_name, features=None, include_key=False):
+    """Parse specific elements according to the given type name and features, while ontinuously writing to file, instead of keeping the results in memory."""
+    log_msg("PROCESS: Start parsing for {}...".format(str(type_name)))
+    assert features is not None, "features must be assigned before parsing the dblp dataset"
+    attrib_count, full_entity, part_entity = {}, 0, 0
+    file = codecs.open(save_path, mode='w', encoding='utf8', errors='ignore')
+    file.write("[")
+    for _, elem in tqdm(context_iter(dblp_path), desc="Parsing..."):
+        if elem.tag in type_name:
+            attrib_values = extract_feature(elem, features, include_key)  # extract required features
+            ujson.dump(attrib_values, file)
+            file.write(",")
+            for key, value in attrib_values.items():
+                attrib_count[key] = attrib_count.get(key, 0) + len(value)
+            cnt = sum([1 if len(x) > 0 else 0 for x in list(attrib_values.values())])
+            if cnt == len(features):
+                full_entity += 1
+            else:
+                part_entity += 1
+        elif elem.tag not in all_elements:
+            continue
+        clear_element(elem)
+    file.seek(-1, os.SEEK_CUR)# Goes back one character to get rid of the excess comma at the end of the list.
+    file.write("]")
+    return full_entity, part_entity, attrib_count
 
 def parse_author(dblp_path, save_path, save_to_csv=False):
     type_name = ['article', 'book', 'incollection', 'inproceedings']
